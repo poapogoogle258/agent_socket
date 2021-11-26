@@ -45,7 +45,7 @@ async function main(){
                     'host' : host,
                     'cpu' : cpu,
                     'memory' : mem['usedMemPercentage'],
-                    'nodes' : node_service,
+                    'node_service' : node_service,
                     'time' : Date.now()
                 }
 
