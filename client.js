@@ -2,7 +2,10 @@ const pm2 = require('pm2')
 const osu = require('node-os-utils');
 const { io } = require("socket.io-client");
 
-const socket = io("http://localhost:3000");
+const exec = require("child_process").exec
+
+const socket = io("http://monitor.obotrons.net:3000",{});
+var sendermessage = false
 
 
 function getIPAddress() {
@@ -17,59 +20,75 @@ function getIPAddress() {
       }
     }
     return '0.0.0.0';
-  }
+}
   
 
 async function main(){
     var content_servers = false
-    var host = getIPAddress()
-
 
     function get_resource(){
         var node_service = []
+        var host = getIPAddress()
 
         pm2.connect(async function(err){
             content_servers = (err)? false : true
 
             pm2.list(async function(err,list_pm2){    
                 content_servers = (err)? false : true
-
-                list_pm2.forEach(process_node => {
-                    node_service.push({'name' : process_node['pm2_env']['name'], 'status' : process_node['pm2_env']['status'] })
-                });
-                // post data to host
-                const mem = await osu.mem.info()
-                const cpu = await osu.cpu.usage()
+                
+                // get status nginx
+                exec('sudo service nginx status', async(error,stdout,stderr) => {
+                    list_pm2.forEach(process_node => {
+                        node_service.push({'name' : process_node['pm2_env']['name'], 'status' : process_node['pm2_env']['status'] })
+                    });
+                    // post data to host
+                    const mem = await osu.mem.info()
+                    const cpu = await osu.cpu.usage()
+        
+                    const data = {
+                        'host' : host,
+                        'cpu' : cpu,
+                        'memory' : mem['usedMemPercentage'],
+                        'node_service' : node_service,
+                        'nginx' : stdout.includes('active (running)'), // stop = inactive (dead) , start = active (running)
+                        'time' : Date.now()
+                    }
     
-                const data = {
-                    'host' : host,
-                    'cpu' : cpu,
-                    'memory' : mem['usedMemPercentage'],
-                    'node_service' : node_service,
-                    'time' : Date.now()
-                }
-
-                socket.emit('send_status',data)
-
-
-                //end programd
-                pm2.disconnect() 
+                    socket.emit('send_status',data)
+    
+    
+                    //end programd
+                    pm2.disconnect()                     
+                })
             })
         })
-
     }
 
     // loop every 2 secount
     while(true){
         get_resource()
-        await new Promise(r => setTimeout(r,2000))
+        await new Promise(r => setTimeout(r,5 * 60 * 1000))
     }
-}
+}   
 
 
-socket.on('connect',function() {
+socket.on('connect',function(data) {
     //run app.js
     console.log(`connecttion data `)
+    //start socket
+
+    socket.on('assign_sender',function(){
+        sendermessage = true
+        console.log('be sender')
+    })
+
+    socket.emit('send_status',{
+        'host' : getIPAddress(),
+        'cpu' : 0,
+        'memory' :0,
+        'node_service' : [],
+        'time' : Date.now()
+    })
     main()
 });
 
@@ -78,5 +97,47 @@ socket.on('disconnect',() => {
     console.log(socket.id)
 })
 
+socket.on('reconnect',() => {
+     sendermessage = false
+})
+
+socket.on("connect_error", (error) => {
+    if(sendermessage){
+        send_message(`Big Servers Down dont can connect`)
+        sendermessage = false
+        setTimeout(() => {
+            sendermessage = true
+        }, 1000 * 60 * 5);
+    }
+    console.log('error',error)
+  });
+
+// line notify message
+const send_message = (message) => {
+    var axios = require('axios');
+    var qs = require('qs');
+    var data = qs.stringify({
+      'message': message 
+    });
+    var config = {
+      method: 'post',
+      url: 'https://notify-api.line.me/api/notify',
+      headers: { 
+        'Authorization': 'Bearer B6yPj7gOCjsVuhn9MhZjbYgqwwcnM3AxrQRhDtt3MvU', 
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      data : data
+    };
+  
+    axios(config)
+    .then(function (response) {
+      console.log(JSON.stringify(response.data));
+    })
+    .catch(function (error) {
+      console.log(error);
+    });
+  
+    console.log('sended message')
+}
 
 
