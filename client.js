@@ -67,7 +67,7 @@ async function main(){
     // loop every 2 secount
     while(true){
         get_resource()
-        await new Promise(r => setTimeout(r,5 * 60 * 1000))
+        await new Promise(r => setTimeout(r,30 * 1000))
     }
 }   
 
